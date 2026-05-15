@@ -50,3 +50,4 @@ action = function(HostData, PortData)
         return ScanReport:make_output(VulnTable)
     end
 end
+
