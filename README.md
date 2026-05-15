@@ -13,5 +13,5 @@ nmap -p 80,443,8080 --script SensitiveFileCheck.nse -d <TARGET IP/DOMAIN>
 ```
 
 ```bash
-nmap -p 80,443,8080 --script HttpEnvCheck.nse -d example.com
+nmap -p 80,443,8080 --script HttpEnvCheck.nse -d testasp.vulnweb.com
 ```

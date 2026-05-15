@@ -7,7 +7,7 @@ description = [[
 Checks for the exposure of common sensitive files including admin panels, database dumps, and source backups.
 ]]
 
-author = "CyberSecurity Researcher"
+author = "MatrixTM26"
 license = "Same as Nmap--See https://nmap.org"
 categories = {"vuln", "discovery", "safe"}
 

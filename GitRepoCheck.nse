@@ -7,7 +7,7 @@ description = [[
 Checks if a web server accidentally exposes its internal .git repository directory.
 ]]
 
-author = "CyberSecurity Researcher"
+author = "MatrixTM26"
 license = "Same as Nmap--See https://nmap.org"
 categories = {"vuln", "discovery", "safe"}
 

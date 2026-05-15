@@ -7,7 +7,7 @@ description = [[
 Checks if a Docker Remote API instance is exposed without authentication.
 ]]
 
-author = "CyberSecurity Researcher"
+author = "MatrixTM26"
 license = "Same as Nmap--See https://nmap.org"
 categories = {"vuln", "discovery", "intrusive"}
 

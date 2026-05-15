@@ -7,7 +7,7 @@ description = [[
 Checks if a web server accidentally exposes a sensitive .env configuration file.
 ]]
 
-author = "CyberSecurity Researcher"
+author = "MatrixTM26"
 license = "Same as Nmap--See https://nmap.org"
 categories = {"vuln", "discovery", "safe"}
 
