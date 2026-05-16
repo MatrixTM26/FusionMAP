@@ -1,5 +1,5 @@
-# LuaNetSec NSE Scripts
-## Nmap Scripting Engine -- Network and Web Security Audit
+# FusionMAP
+## Nmap Scripting Engine: Network and Web Security Audit
 
 Author  : MatrixTM26
 Version : 3.0
