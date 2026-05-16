@@ -2,78 +2,76 @@
 -- ssh-security-audit.nse
 -- Nmap NSE Script: SSH Configuration & Algorithm Security Audit
 --
--- Penggunaan:
+-- Usage:
 --   nmap -p 22 --script ssh-security-audit <target>
---   nmap -p 22 --script ssh-security-audit --script-args ssh-security-audit.timeout=5 <target>
+--   nmap -p 22 --script ssh-security-audit \
+--        --script-args ssh-security-audit.timeout=10 <target>
 --
--- Author : LuaNetSec Project
--- License: Same as Nmap
+-- Author  : MatrixTM26
+-- License : Same as Nmap--See https://nmap.org/book/man-legal.html
 -- ============================================================
 
 local nmap      = require "nmap"
 local shortport = require "shortport"
 local stdnse    = require "stdnse"
-local string    = require "string"
-local table     = require "table"
 
 description = [[
-Mengaudit konfigurasi keamanan SSH server dengan menganalisis:
-  * Versi SSH server dan potensi kerentanan
-  * Algoritma kriptografi yang digunakan (KEX, cipher, MAC, HostKey)
-  * Deteksi algoritma lemah/deprecated (MD5, RC4, DES, 3DES, Arcfour)
-  * Konfigurasi yang berpotensi berbahaya
-  * Rekomendasi hardening
+Audits SSH server security configuration by analyzing:
+  * SSH server version and known vulnerabilities
+  * Cryptographic algorithms (KEX, cipher, MAC, HostKey)
+  * Detection of weak/deprecated algorithms (MD5, RC4, DES, 3DES, Arcfour)
+  * Potentially dangerous configurations
+  * Hardening recommendations
 
-Script ini HANYA membaca banner dan melakukan SSH handshake awal
-tanpa autentikasi — AMAN digunakan untuk audit.
+This script only reads the banner and performs an initial SSH handshake
+without authentication -- safe for auditing.
 ]]
 
-author     = "LuaNetSec"
+author     = "MatrixTM26"
 license    = "Same as Nmap--See https://nmap.org/book/man-legal.html"
 categories = {"safe", "discovery", "vuln"}
 
 portrule = shortport.port_or_service(22, "ssh")
 
--- ── Weak/Deprecated Algorithms Database ──────────────────────
+-- ── Weak/Deprecated Algorithm Database ───────────────────────
 local WEAK_KEX = {
-    ["diffie-hellman-group1-sha1"]    = "KRITIS: DH Group1 (768/1024-bit) — CVE-2016-0777",
-    ["diffie-hellman-group-exchange-sha1"] = "LEMAH: SHA1 di KEX sudah deprecated",
-    ["gss-gex-sha1-*"]                = "LEMAH: SHA1 di GSSAPI KEX",
-    ["gss-group1-sha1-*"]             = "KRITIS: Group1 SHA1 GSSAPI",
+    ["diffie-hellman-group1-sha1"]         = "CRITICAL: DH Group1 (768/1024-bit) -- CVE-2016-0777",
+    ["diffie-hellman-group-exchange-sha1"] = "WEAK: SHA1 in KEX is deprecated",
+    ["gss-gex-sha1-*"]                     = "WEAK: SHA1 in GSSAPI KEX",
+    ["gss-group1-sha1-*"]                  = "CRITICAL: Group1 SHA1 GSSAPI",
 }
 
 local WEAK_CIPHERS = {
-    ["arcfour"]    = "KRITIS: RC4 — dilarang oleh RFC 8758",
-    ["arcfour128"] = "KRITIS: RC4-128 — dilarang oleh RFC 8758",
-    ["arcfour256"] = "KRITIS: RC4-256 — dilarang oleh RFC 8758",
-    ["3des-cbc"]   = "LEMAH: 3DES-CBC — Sweet32 attack (CVE-2016-2183)",
-    ["blowfish-cbc"] = "LEMAH: Blowfish CBC — block size 64-bit",
-    ["cast128-cbc"]  = "LEMAH: CAST-128 CBC — block size 64-bit",
-    ["des-cbc"]    = "KRITIS: DES-CBC — deprecated, kunci 56-bit",
-    ["aes128-cbc"] = "PERINGATAN: AES-CBC rentan terhadap BEAST attack",
-    ["aes192-cbc"] = "PERINGATAN: AES-CBC rentan terhadap BEAST attack",
-    ["aes256-cbc"] = "PERINGATAN: AES-CBC rentan terhadap BEAST attack",
-    ["rijndael-cbc@lysator.liu.se"] = "LEMAH: Rijndael CBC (alias AES-CBC)",
+    ["arcfour"]                     = "CRITICAL: RC4 -- prohibited by RFC 8758",
+    ["arcfour128"]                  = "CRITICAL: RC4-128 -- prohibited by RFC 8758",
+    ["arcfour256"]                  = "CRITICAL: RC4-256 -- prohibited by RFC 8758",
+    ["3des-cbc"]                    = "WEAK: 3DES-CBC -- Sweet32 attack (CVE-2016-2183)",
+    ["blowfish-cbc"]                = "WEAK: Blowfish CBC -- 64-bit block size",
+    ["cast128-cbc"]                 = "WEAK: CAST-128 CBC -- 64-bit block size",
+    ["des-cbc"]                     = "CRITICAL: DES-CBC -- deprecated, 56-bit key",
+    ["aes128-cbc"]                  = "WARNING: AES-CBC -- susceptible to BEAST attack",
+    ["aes192-cbc"]                  = "WARNING: AES-CBC -- susceptible to BEAST attack",
+    ["aes256-cbc"]                  = "WARNING: AES-CBC -- susceptible to BEAST attack",
+    ["rijndael-cbc@lysator.liu.se"] = "WEAK: Rijndael CBC (AES-CBC alias)",
 }
 
 local WEAK_MACS = {
-    ["hmac-md5"]         = "LEMAH: HMAC-MD5 — MD5 tidak aman untuk MAC",
-    ["hmac-md5-96"]      = "LEMAH: HMAC-MD5-96 — truncated MD5",
-    ["hmac-sha1"]        = "PERINGATAN: HMAC-SHA1 — SHA1 deprecated",
-    ["hmac-sha1-96"]     = "PERINGATAN: HMAC-SHA1-96 — truncated SHA1",
-    ["hmac-ripemd160"]   = "LEMAH: HMAC-RIPEMD160 — deprecated",
-    ["umac-32@openssh.com"] = "PERINGATAN: UMAC-32 — tag size terlalu kecil",
+    ["hmac-md5"]            = "WEAK: HMAC-MD5 -- MD5 is not secure for MAC",
+    ["hmac-md5-96"]         = "WEAK: HMAC-MD5-96 -- truncated MD5",
+    ["hmac-sha1"]           = "WARNING: HMAC-SHA1 -- SHA1 deprecated",
+    ["hmac-sha1-96"]        = "WARNING: HMAC-SHA1-96 -- truncated SHA1",
+    ["hmac-ripemd160"]      = "WEAK: HMAC-RIPEMD160 -- deprecated",
+    ["umac-32@openssh.com"] = "WARNING: UMAC-32 -- tag size too small",
 }
 
 local WEAK_HOSTKEYS = {
-    ["ssh-dss"]        = "KRITIS: DSA/DSS 1024-bit — dinonaktifkan OpenSSH >= 7.0",
-    ["ssh-rsa"]        = "PERINGATAN: RSA-SHA1 — OpenSSH >= 8.8 nonaktif secara default",
-    ["ecdsa-sha2-nistp256"] = "INFO: NIST P-256 — potensial backdoor NIST curve",
-    ["ecdsa-sha2-nistp384"] = "INFO: NIST P-384 — potensial backdoor NIST curve",
-    ["ecdsa-sha2-nistp521"] = "INFO: NIST P-521 — potensial backdoor NIST curve",
+    ["ssh-dss"]             = "CRITICAL: DSA/DSS 1024-bit -- disabled in OpenSSH >= 7.0",
+    ["ssh-rsa"]             = "WARNING: RSA-SHA1 -- disabled by default in OpenSSH >= 8.8",
+    ["ecdsa-sha2-nistp256"] = "INFO: NIST P-256 -- potential NIST curve concern",
+    ["ecdsa-sha2-nistp384"] = "INFO: NIST P-384 -- potential NIST curve concern",
+    ["ecdsa-sha2-nistp521"] = "INFO: NIST P-521 -- potential NIST curve concern",
 }
 
--- Algoritma yang AMAN & DIREKOMENDASIKAN
 local GOOD_CIPHERS = {
     ["chacha20-poly1305@openssh.com"] = true,
     ["aes256-gcm@openssh.com"]        = true,
@@ -84,266 +82,273 @@ local GOOD_CIPHERS = {
 }
 
 local GOOD_MACS = {
-    ["hmac-sha2-512-etm@openssh.com"]  = true,
-    ["hmac-sha2-256-etm@openssh.com"]  = true,
-    ["umac-128-etm@openssh.com"]       = true,
-    ["hmac-sha2-512"]                  = true,
-    ["hmac-sha2-256"]                  = true,
+    ["hmac-sha2-512-etm@openssh.com"] = true,
+    ["hmac-sha2-256-etm@openssh.com"] = true,
+    ["umac-128-etm@openssh.com"]      = true,
+    ["hmac-sha2-512"]                 = true,
+    ["hmac-sha2-256"]                 = true,
 }
 
--- ── SSH Handshake Parser ──────────────────────────────────────
--- Membaca SSH_MSG_KEXINIT packet untuk mendapatkan daftar algoritma
-
-local SSH2_MSG_KEXINIT = 20
+-- ── Packet helpers ────────────────────────────────────────────
 local function read_uint32(data, pos)
-    local a, b, c, d = data:byte(pos, pos+3)
+    if pos + 3 > #data then return 0, pos + 4 end
+    local a, b, c, d = data:byte(pos, pos + 3)
     return (a * 0x1000000) + (b * 0x10000) + (c * 0x100) + d, pos + 4
 end
 
 local function read_namelist(data, pos)
+    if pos > #data then return {}, pos end
     local len, newpos = read_uint32(data, pos)
-    if not len then return {}, pos end
-    local names_str = data:sub(newpos, newpos + len - 1)
+    if len == 0 then return {}, newpos end
+    if newpos + len - 1 > #data then return {}, newpos end
+    local raw = data:sub(newpos, newpos + len - 1)
     newpos = newpos + len
     local names = {}
-    for name in names_str:gmatch("[^,]+") do
-        table.insert(names, name)
-    end
+    for name in raw:gmatch("[^,]+") do names[#names + 1] = name end
     return names, newpos
 end
 
 local function parse_kexinit(data)
-    -- Skip: packet_length(4) + padding_length(1) + msg_type(1) + cookie(16)
-    local pos = 4 + 1 + 1 + 16 + 1  -- +1 for 1-based index
-
+    -- combined buffer layout (1-based):
+    --   bytes  1-4  : packet_length  (uint32)
+    --   byte   5    : padding_length (byte)
+    --   byte   6    : message type   (byte, 20 = SSH_MSG_KEXINIT)
+    --   bytes  7-22 : cookie         (16 random bytes)
+    --   byte   23+  : name-list fields
+    local pos = 23
     local result = {}
     local fields = {
-        "kex_algorithms",
-        "server_host_key_algorithms",
-        "encryption_algorithms_client_to_server",
-        "encryption_algorithms_server_to_client",
-        "mac_algorithms_client_to_server",
-        "mac_algorithms_server_to_client",
-        "compression_algorithms_client_to_server",
-        "compression_algorithms_server_to_client",
+        "kex_algorithms", "server_host_key_algorithms",
+        "encryption_c2s", "encryption_s2c",
+        "mac_c2s",        "mac_s2c",
+        "compression_c2s","compression_s2c",
     }
-
     for _, field in ipairs(fields) do
+        if pos > #data then break end
         local names, newpos = read_namelist(data, pos)
         result[field] = names
         pos = newpos
-        if pos > #data then break end
     end
-
     return result
 end
 
 local function check_algorithms(alg_list, weak_db, good_db)
-    local issues  = {}
-    local good    = {}
-    local neutral = {}
-
+    local issues, good = {}, {}
     for _, alg in ipairs(alg_list or {}) do
         if weak_db[alg] then
-            table.insert(issues, string.format("  ✗ %-40s → %s", alg, weak_db[alg]))
+            issues[#issues + 1] = ("[X] %-42s %s"):format(alg, weak_db[alg])
         elseif good_db and good_db[alg] then
-            table.insert(good, "  ✓ " .. alg)
-        else
-            table.insert(neutral, "    " .. alg)
+            good[#good + 1] = "[+] " .. alg
         end
     end
-
-    return issues, good, neutral
+    return issues, good
 end
 
--- ── Analyze SSH Banner ────────────────────────────────────────
 local function analyze_banner(banner)
-    local issues = {}
-    local info   = {}
-
-    -- Extract version
-    local proto, sw_ver = banner:match("SSH%-([%d%.]+)-(.+)")
+    local issues, info = {}, {}
+    local proto, sw = banner:match("SSH%-([%d%.]+)%-(.+)")
     if proto then
-        table.insert(info, "Protocol: SSH-" .. proto)
-        if proto == "1.99" or proto == "1.5" or proto:match("^1%.") then
-            table.insert(issues, "KRITIS: Mendukung SSHv1 — rentan terhadap MITM dan dekripsi")
+        info[#info + 1] = "Protocol: SSH-" .. proto
+        if proto:match("^1%.") then
+            issues[#issues + 1] = "CRITICAL: SSHv1 supported -- vulnerable to MITM and decryption"
         end
     end
-
-    -- Detect software
-    if sw_ver then
-        table.insert(info, "Software: " .. sw_ver:gsub("\r",""):gsub("\n",""))
-
-        -- OpenSSH version checks
-        local openssh_ver = sw_ver:match("OpenSSH_([%d%.]+)")
-        if openssh_ver then
-            local major, minor = openssh_ver:match("^(%d+)%.(%d+)")
-            major, minor = tonumber(major), tonumber(minor)
-            if major and minor then
-                if major < 7 then
-                    table.insert(issues, string.format("KRITIS: OpenSSH %s sangat lama — banyak CVE kritis", openssh_ver))
-                elseif major == 7 and minor < 4 then
-                    table.insert(issues, string.format("LEMAH: OpenSSH %s — CVE-2016-6515 (DoS), CVE-2016-10009", openssh_ver))
-                elseif major < 8 then
-                    table.insert(issues, string.format("PERINGATAN: OpenSSH %s — pertimbangkan upgrade ke 8.x+", openssh_ver))
+    if sw then
+        sw = sw:gsub("\r",""):gsub("\n","")
+        info[#info + 1] = "Software: " .. sw
+        local ver = sw:match("OpenSSH_([%d%.]+)")
+        if ver then
+            local maj, min = ver:match("^(%d+)%.(%d+)")
+            maj, min = tonumber(maj), tonumber(min)
+            if maj then
+                if maj < 7 then
+                    issues[#issues + 1] = ("CRITICAL: OpenSSH %s is very old -- multiple critical CVEs"):format(ver)
+                elseif maj == 7 and min < 4 then
+                    issues[#issues + 1] = ("WEAK: OpenSSH %s -- CVE-2016-6515, CVE-2016-10009"):format(ver)
+                elseif maj < 8 then
+                    issues[#issues + 1] = ("WARNING: OpenSSH %s -- consider upgrading to 8.x+"):format(ver)
                 else
-                    table.insert(info, string.format("OpenSSH %s (relatif terkini)", openssh_ver))
+                    info[#info + 1] = ("OpenSSH %s (reasonably current)"):format(ver)
                 end
             end
         end
-
-        -- Dropbear
-        local db_ver = sw_ver:match("dropbear_([%d%.]+)")
-        if db_ver then
-            table.insert(info, "Dropbear SSH " .. db_ver)
-            table.insert(issues, "INFO: Dropbear — verifikasi apakah versi ini memiliki CVE yang diketahui")
+        local db = sw:match("[Dd]ropbear_([%d%.]+)")
+        if db then
+            info[#info + 1] = "Dropbear SSH " .. db
+            issues[#issues + 1] = "INFO: Dropbear -- verify no known CVEs for this version"
         end
-
-        -- Cisco
-        if sw_ver:match("Cisco") then
-            table.insert(issues, "INFO: Cisco SSH — periksa advisory Cisco untuk firmware terkini")
+        if sw:match("Cisco") then
+            issues[#issues + 1] = "INFO: Cisco SSH -- check Cisco advisories for latest firmware"
         end
     end
-
     return issues, info
 end
 
--- ── Main Action ───────────────────────────────────────────────
+-- ── Robust SSH banner reader ──────────────────────────────────
+--
+-- FIX for "No SSH banner received (got: )":
+--
+-- The previous implementation looped receive_bytes(1) to accumulate
+-- the banner one byte at a time.  On a slow link or a server that
+-- buffers its write, the first byte does not arrive within the
+-- per-byte timeout and the function returns empty immediately.
+--
+-- Correct strategy (RFC 4253 s4.2 allows client to send first):
+--
+--   Step 1 -- wait for server-first banner with a single blocking
+--             receive_bytes(256).  This blocks until ANY data
+--             arrives, then returns the whole chunk.
+--
+--   Step 2 -- if the server is silent, send our client ID string
+--             first.  Some strict / proxy implementations only
+--             start speaking after the client identifies itself.
+--             Then do another blocking receive_bytes(256).
+--
+--   Step 3 -- search the accumulated buffer for "SSH-" regardless
+--             of pre-banner text ("Authorized use only.", etc.).
+--
+-- Returns: banner_string, already_sent_client_id (bool)
+--
+local function read_ssh_banner(socket, timeout_ms)
+    timeout_ms = timeout_ms or 10000
+    local CLIENT_ID = "SSH-2.0-MatrixTM26_Audit\r\n"
+    local sent_client_id = false
+
+    -- Step 1: blocking bulk read
+    socket:set_timeout(timeout_ms)
+    local ok, data = socket:receive_bytes(256)
+    if ok and data then
+        local line = data:match("(SSH%-[^\r\n]+)")
+        if line then return line, sent_client_id end
+    end
+
+    -- Step 2: send client banner then read again
+    socket:send(CLIENT_ID)
+    sent_client_id = true
+    socket:set_timeout(timeout_ms)
+    ok, data = socket:receive_bytes(256)
+    if ok and data then
+        local line = data:match("(SSH%-[^\r\n]+)")
+        if line then return line, sent_client_id end
+    end
+
+    return nil, sent_client_id
+end
+
+-- ── Main action ───────────────────────────────────────────────
 action = function(host, port)
-    local timeout = tonumber(stdnse.get_script_args("ssh-security-audit.timeout")) or 8
+    local timeout_ms = (tonumber(
+        stdnse.get_script_args("ssh-security-audit.timeout")) or 10) * 1000
 
     local socket = nmap.new_socket()
-    socket:set_timeout(timeout * 1000)
+    socket:set_timeout(timeout_ms)
 
-    local status, err = socket:connect(host, port)
-    if not status then
-        return stdnse.format_output(false, "Koneksi gagal: " .. (err or "unknown"))
+    local ok, err = socket:connect(host, port)
+    if not ok then
+        return stdnse.format_output(false, "Connection failed: " .. (err or "unknown"))
     end
 
-    -- ── Baca banner ───────────────────────────────────────────
-    local banner_line, _ = socket:receive_lines(1)
-    if not banner_line then
+    local banner, already_sent = read_ssh_banner(socket, timeout_ms)
+    if not banner then
         socket:close()
-        return stdnse.format_output(false, "Tidak menerima banner SSH")
+        return stdnse.format_output(false, "No SSH banner received")
     end
 
-    local banner = banner_line:gsub("\r\n",""):gsub("\n","")
-    if not banner:match("^SSH%-") then
-        socket:close()
-        return stdnse.format_output(false, "Bukan SSH server: " .. banner:sub(1,50))
+    -- Send our client ID only if read_ssh_banner did not already send it
+    if not already_sent then
+        socket:send("SSH-2.0-MatrixTM26_Audit\r\n")
     end
 
-    -- Kirim banner kita
-    socket:send("SSH-2.0-LuaNetSec_Audit_1.0\r\n")
+    -- Read KEXINIT (4-byte length prefix first)
+    socket:set_timeout(timeout_ms)
+    local raw_len, _ = socket:receive_bytes(4)
+    local kex_payload = nil
 
-    -- ── Baca SSH_MSG_KEXINIT dari server ──────────────────────
-    -- SSH packet: uint32 length, byte padding_length, byte msg_type, ...
-    local raw_len_data, _ = socket:receive_bytes(4)
-    if not raw_len_data or #raw_len_data < 4 then
-        socket:close()
-        -- Return banner analysis only
-        local output = stdnse.output_table()
-        output["Banner"]  = banner
-        output["Warning"] = "Tidak dapat membaca KEXINIT packet — analisis terbatas"
-        return output
+    if raw_len and #raw_len >= 4 then
+        local pkt_len, _ = read_uint32(raw_len, 1)
+        pkt_len = math.min(pkt_len, 35000)
+        local kex_data, _ = socket:receive_bytes(pkt_len)
+        if kex_data then kex_payload = raw_len .. kex_data end
     end
-
-    local pkt_len, _ = read_uint32(raw_len_data, 1)
-    pkt_len = math.min(pkt_len, 35000) -- safety cap
-
-    local kex_data, _ = socket:receive_bytes(pkt_len)
     socket:close()
 
-    -- ── Parse & Analyze ───────────────────────────────────────
-    local output  = stdnse.output_table()
+    -- Analyze
+    local output     = stdnse.output_table()
     local all_issues = {}
 
-    -- Banner
     output["SSH Banner"] = banner
     local b_issues, b_info = analyze_banner(banner)
-    if #b_info   > 0 then output["Server Info"] = b_info end
-    if #b_issues > 0 then
-        for _, i in ipairs(b_issues) do table.insert(all_issues, i) end
-    end
+    if #b_info > 0 then output["Server Info"] = b_info end
+    for _, i in ipairs(b_issues) do all_issues[#all_issues + 1] = i end
 
-    -- Parse KEXINIT jika data tersedia
-    if kex_data and #kex_data > 20 then
-        local combined = raw_len_data .. kex_data
-        local ok, algs = pcall(parse_kexinit, combined)
-
-        if ok and algs then
-            -- KEX
-            local kex_issues, kex_good, _ = check_algorithms(
-                algs.kex_algorithms, WEAK_KEX, nil)
-            if algs.kex_algorithms then
+    if kex_payload and #kex_payload > 22 then
+        local pok, algs = pcall(parse_kexinit, kex_payload)
+        if pok and algs then
+            if algs.kex_algorithms and #algs.kex_algorithms > 0 then
                 output["KEX Algorithms"] = algs.kex_algorithms
             end
-            for _, i in ipairs(kex_issues) do table.insert(all_issues, i) end
+            local kex_iss, _ = check_algorithms(algs.kex_algorithms, WEAK_KEX, nil)
+            for _, i in ipairs(kex_iss) do all_issues[#all_issues + 1] = i end
 
-            -- Ciphers
-            local cip_issues, cip_good, _ = check_algorithms(
-                algs.encryption_algorithms_server_to_client, WEAK_CIPHERS, GOOD_CIPHERS)
-            if algs.encryption_algorithms_server_to_client then
-                output["Encryption Algorithms"] = algs.encryption_algorithms_server_to_client
+            if algs.encryption_s2c and #algs.encryption_s2c > 0 then
+                output["Encryption Algorithms"] = algs.encryption_s2c
             end
-            if #cip_good > 0 then output["Good Ciphers"] = cip_good end
-            for _, i in ipairs(cip_issues) do table.insert(all_issues, i) end
+            local cip_iss, cip_good = check_algorithms(algs.encryption_s2c, WEAK_CIPHERS, GOOD_CIPHERS)
+            if #cip_good > 0 then output["Strong Ciphers"] = cip_good end
+            for _, i in ipairs(cip_iss) do all_issues[#all_issues + 1] = i end
 
-            -- MACs
-            local mac_issues, mac_good, _ = check_algorithms(
-                algs.mac_algorithms_server_to_client, WEAK_MACS, GOOD_MACS)
-            if algs.mac_algorithms_server_to_client then
-                output["MAC Algorithms"] = algs.mac_algorithms_server_to_client
+            if algs.mac_s2c and #algs.mac_s2c > 0 then
+                output["MAC Algorithms"] = algs.mac_s2c
             end
-            if #mac_good > 0 then output["Good MACs"] = mac_good end
-            for _, i in ipairs(mac_issues) do table.insert(all_issues, i) end
+            local mac_iss, mac_good = check_algorithms(algs.mac_s2c, WEAK_MACS, GOOD_MACS)
+            if #mac_good > 0 then output["Strong MACs"] = mac_good end
+            for _, i in ipairs(mac_iss) do all_issues[#all_issues + 1] = i end
 
-            -- Host Keys
-            local hk_issues, _, _ = check_algorithms(
-                algs.server_host_key_algorithms, WEAK_HOSTKEYS, nil)
-            if algs.server_host_key_algorithms then
+            if algs.server_host_key_algorithms and #algs.server_host_key_algorithms > 0 then
                 output["Host Key Types"] = algs.server_host_key_algorithms
             end
-            for _, i in ipairs(hk_issues) do table.insert(all_issues, i) end
+            local hk_iss, _ = check_algorithms(algs.server_host_key_algorithms, WEAK_HOSTKEYS, nil)
+            for _, i in ipairs(hk_iss) do all_issues[#all_issues + 1] = i end
 
-            -- Compression
-            local comp = algs.compression_algorithms_server_to_client
-            if comp then
-                for _, c in ipairs(comp) do
+            if algs.compression_s2c then
+                for _, c in ipairs(algs.compression_s2c) do
                     if c == "zlib" then
-                        table.insert(all_issues,
-                            "PERINGATAN: zlib compression aktif — rentan CRIME-like attack")
+                        all_issues[#all_issues + 1] =
+                            "WARNING: zlib compression enabled -- susceptible to CRIME-like attacks"
                     end
                 end
-                output["Compression"] = comp
+                if #algs.compression_s2c > 0 then
+                    output["Compression"] = algs.compression_s2c
+                end
             end
+        else
+            output["KEXINIT"] = "Could not parse -- banner analysis only"
         end
+    else
+        output["KEXINIT"] = "Not received -- banner analysis only"
     end
 
-    -- ── Summary ───────────────────────────────────────────────
     if #all_issues > 0 then
         output["Security Issues"] = all_issues
-        local kritis = 0
+        local crit = 0
         for _, i in ipairs(all_issues) do
-            if i:match("KRITIS") then kritis = kritis + 1 end
+            if i:match("CRITICAL") then crit = crit + 1 end
         end
-        output["Risk Level"] = kritis > 0 and
-            string.format("TINGGI (%d isu kritis)", kritis) or
-            string.format("SEDANG (%d isu)", #all_issues)
+        output["Risk Level"] = crit > 0
+            and ("HIGH (%d critical issue(s))"):format(crit)
+            or  ("MEDIUM (%d issue(s))"):format(#all_issues)
     else
-        output["Risk Level"] = "RENDAH — Tidak ada isu keamanan signifikan ditemukan"
+        output["Risk Level"] = "LOW -- No significant security issues found"
     end
 
-    -- Rekomendasi
-    local reco = {
-        "Gunakan only: chacha20-poly1305, aes256-gcm, aes128-gcm",
-        "Gunakan ETM MAC: hmac-sha2-256-etm, hmac-sha2-512-etm",
+    output["Hardening Tips"] = {
+        "Allow only: chacha20-poly1305, aes256-gcm, aes128-gcm",
+        "Use ETM MACs: hmac-sha2-256-etm, hmac-sha2-512-etm",
         "KEX: curve25519-sha256, diffie-hellman-group16-sha512",
-        "Nonaktifkan password auth — gunakan hanya key-based auth",
-        "Batasi akses root: PermitRootLogin no",
-        "Gunakan AllowUsers/AllowGroups untuk membatasi akses",
+        "Disable password authentication -- use key-based auth only",
+        "Set PermitRootLogin no in sshd_config",
+        "Use AllowUsers/AllowGroups to restrict access",
     }
-    output["Hardening Tips"] = reco
 
     return output
 end

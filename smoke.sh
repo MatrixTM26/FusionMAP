@@ -1,3 +1,3 @@
 #!/bin/bash
 
-nmap -sV --script HttpEnvCheck.nse -d testasp.vulnweb.com
+nmap -sV --script http-security-audit.nse -d testasp.vulnweb.com
