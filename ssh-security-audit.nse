@@ -349,6 +349,5 @@ action = function(host, port)
         "Set PermitRootLogin no in sshd_config",
         "Use AllowUsers/AllowGroups to restrict access",
     }
-
     return output
 end

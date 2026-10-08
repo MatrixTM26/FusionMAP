@@ -391,6 +391,5 @@ action = function(host, port)
         reco[#reco+1] = "Remove server/technology headers to reduce fingerprinting"
     end
     if #reco > 0 then output["Recommendations"] = reco end
-
     return output
 end
