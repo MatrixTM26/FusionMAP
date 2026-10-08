@@ -1,0 +1,27 @@
+{
+  "name": "fusionmap",
+  "version": "1.0.0",
+  "description": "Author  : MatrixTM26 Version : 3.0 License : Same as Nmap -- https://nmap.org/book/man-legal.html",
+  "main": "GhostCommit.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MatrixTM26/FusionMAP.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/MatrixTM26/FusionMAP/issues"
+  },
+  "homepage": "https://github.com/MatrixTM26/FusionMAP#readme",
+  "dependencies": {
+    "jsonfile": "^6.2.1",
+    "moment": "^2.31.0",
+    "random": "^5.5.1",
+    "simple-git": "^4.0.2"
+  }
+}
